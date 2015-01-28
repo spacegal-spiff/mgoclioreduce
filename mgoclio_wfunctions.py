@@ -47,7 +47,7 @@ def make_dark(darkinfilen, targetfilen, outfilen = 'masterdark'):
 		if len(im.shape) == 3: # check for data cubes
 			assert not np.any(np.isnan(im))
 			im = np.median(im, axis = 0) # if data cube, then take the median of the frames
-		darkarray[:, :, i] = im
+		darkarray[:,:,i] = im
 	 
 	med_dark = np.median(darkarray, axis = 2)
 	darkname = targetfilen + '_' + date + '_' + outfilen + '.fits'
@@ -56,65 +56,65 @@ def make_dark(darkinfilen, targetfilen, outfilen = 'masterdark'):
 
 
 
-def make_flat(flatinfilen, targetfilen, flatflag, outfilen = 'masterflat'):
+def make_flat(flatinfilen, targetfilen, flatflag, flattype, outfilen = 'masterflat'):
 	"""
-	Takes raw flatfield frames (sky or lamp), dark subtracts them,  median combines them to create a masterdark frame.
+	Takes raw flatfield frames (sky or lamp), dark subtracts them, median combines and scales them to create a masterdark frame.
 
 	Parameters
 	----------
 	flatinfilen : text file with file names of the flat files you wish to reduce and combine (one per line)
 	targetfilen : name of the target 
+	flatflag : whether or not a pre-reduced flatfield exists
+	flattype : flag determining whether flats are twilight skies or lamps
 	
 	Returns
 	-------
-	med_dark : 2D array of the median combination of the dark frames
-	(target_date_masterdark.fits) : writes FITS file to disk
+	med_dark : 2D array of the reduced flat frame
+	(target_date_masterflat.fits) : writes FITS file to disk
 	"""
 
-	
-
-	# Assuming you need to create a single combined flatframe: 
+	# Scenario 1: Assuming you need to create a single combined flatframe: 
 	if flatflag == 1:
-		flatlist = open(sys.argv[2], 'r')
+		flatlist = open(flatinfilen, 'r')
 		flatlist = flatlist.readlines()
 		n = len(flatlist)
 
 		fits = pyfits.open(flatlist[0])
-		flatheader = fits[0].header
+		flatheader = fits[0].header # similarly, use the header info from the first flat for the masterflat
 
-		imsize = 1024
-		flatarray = np.zeros((imsize,imsize,n),dtype=np.float32)
+		imsize = 1024 # CHANGE: this should not be hard coded!
+		flatarray = np.zeros((imsize, imsize, n), dtype = np.float32)
 
-		for i in xrange(0,n):
-			fits=pyfits.open(flatlist[i])
-			im=fits[0].data
-			if len(im.shape) == 3: #check for data cubes
+		for i in xrange(0, n):
+			fits = pyfits.open(flatlist[i])
+			im = fits[0].data
+			if len(im.shape) == 3: # check for data cubes
 				assert not np.any(np.isnan(im))
-				im = np.median(im,axis=0) #if data cube, then median frames
-			flatarray[:,:,i]=im
+				im = np.median(im, axis = 0) # if data cube, then median frames
+			flatarray[:,:,i] = im
 
 	# if flats are twilight/skyflats:
-		if int(sys.argv[4]) == 0:
+		if int(flattype) == 0:
 
 		# subtract off the median dark frame from each of the twiflats, IF median dark is the same exposure length as the twilight flats. If not, then ???
-		for i in xrange (0,n):
+		for i in xrange (0, n):
 			flatarray[:,:,i] -= med_dark
 			
 			median_flat1 = np.median(flatarray[:,:,0])
 			
-			for i in xrange(0,n):
-				flatmedian=np.median(flatarray[:,:,i])
+			for i in xrange(0, n):
+				flatmedian = np.median(flatarray[:,:,i])
 				flatarray[:,:,i] *= (median_flat1/flatmedian)
 
-				med_flat=np.median(flatarray,axis=2)
-				flatname = sys.argv[6] + '_' + date + '_medianflat.fits'
-				pyfits.writeto(flatname,med_flat,flatheader,clobber=True)
+				med_flat = np.median(flatarray, axis = 2)
+				flatname = targetfilen + '_' + date + '_medianflat.fits'
+				pyfits.writeto(flatname, med_flat, flatheader, clobber=True)
 
-
-			else: 
-				tmp_medval=np.average(flatarray)
-				flaton=np.zeros((imsize,imsize,n),dtype=np.float32)
-				flatoff=np.zeros((imsize,imsize,n),dtype=np.float32)
+	# if flats are lamps (sequences of on and off):
+		else: 
+			tmp_medval = np.average(flatarray)
+			flaton = np.zeros((imsize,imsize,n),dtype = np.float32)
+			flatoff = np.zeros((imsize,imsize,n),dtype = np.float32)
 			# changed flaton,off = np.zeros((imsize,imsize,3)) to imsize,imsize,n
 			counton = 0
 			countoff = 0	
@@ -130,20 +130,21 @@ def make_flat(flatinfilen, targetfilen, flatflag, outfilen = 'masterflat'):
 					medflatoff = np.median(flatoff,axis=2)
 					medflaton = np.median(flaton,axis=2)	
 					med_flat = medflaton - medflatoff
-					flatname = sys.argv[6] + '_' + date + '_medianflat.fits'
-					pyfits.writeto(flatname,med_flat,flatheader,clobber=True)
+					flatname = targetfilen + '_' + date + '_medianflat.fits'
+					pyfits.writeto(flatname, med_flat, flatheader, clobber=True)
 
 					del flatarray
 		#del flaton
 		#del flatoff
 		del darkarray
 
-		ind=np.where(med_flat == 0)
+		ind = np.where(med_flat == 0)
 		if np.sum(ind) > 0:	
 			med_flat[ind] = 0.001
 
+	# Scenario 2: Assuming you have a pre-fab flatfield made by someone else
 	elif flatflag == 0:
-		calflat = pyfits.open(sys.argv[2])
+		calflat = pyfits.open(flatinfilen)
 		calflat = calflat[0].data
 		# Strip mode trimming ONLY supported right now (KWD, 2014-11-25)
 		if (np.shape(calflat)[0] != yimsize) and (np.shape(calflat)[1] != ximsize):
@@ -152,11 +153,16 @@ def make_flat(flatinfilen, targetfilen, flatflag, outfilen = 'masterflat'):
 	 
 	 
 	if __name__ == '__main__':
-		darkinfile = sys.argv[1]
+		darkinfile = sys.argv[1] # list of dark file names
+		flatinfile = sys.argv[2] # list of flat file names
+		tbd_1 = sys.argv[3] # to be decided
+		flattype = sys.argv[4] # whether the flats are twilight skies (0) or lamps (1)
+		tbd_2 = sys.argv[5] # to be decided
 		target = sys.argv[6] # target name (e.g. HIP100)
+		tbd_3 = sys.argv[7] # to be decided
 		flatflag = sys.argv[8] # whether the flat needs to be constructed or is provided
 		make_dark(darkinfile, target)
-		make_flat()
+		make_flat(flatinfile, target)
 
 
 
